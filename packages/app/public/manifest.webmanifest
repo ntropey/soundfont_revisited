@@ -1,4 +1,5 @@
 {
+  "id": "https://soundfont.revisitedlabs.com/",
   "name": "SoundFont Revisited",
   "short_name": "SoundFont",
   "description": "100% client-side, offline .sf2 / .sfz SoundFont Bank & Instrument Editor",
