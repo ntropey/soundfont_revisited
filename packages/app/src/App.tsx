@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   cloneZone,
   createDemoBank,
@@ -51,7 +51,14 @@ export function App() {
   const [statusMsg, setStatusMsg] = useState("Loaded Retro GM Starter Bank (offline).");
   const [aboutOpen, setAboutOpen] = useState(false);
 
+  const uid = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const tabRefs = useRef<Record<ExplorerTab, HTMLButtonElement | null>>({
+    presets: null,
+    instruments: null,
+    samples: null,
+    info: null,
+  });
   const engineRef = useRef<AuditionEngine | null>(null);
   if (!engineRef.current) {
     engineRef.current = new AuditionEngine();
@@ -165,9 +172,27 @@ export function App() {
     ? getZoneAdsr(currentZone)
     : { delaySec: 0, attackSec: 0.01, holdSec: 0, decaySec: 0.2, sustainLevel: 0.8, releaseSec: 0.25 };
 
+  const explorerTabs: ExplorerTab[] = ["presets", "instruments", "samples", "info"];
+
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, currentIdx: number) => {
+    let nextIdx: number | null = null;
+    if (e.key === "ArrowRight") nextIdx = (currentIdx + 1) % explorerTabs.length;
+    else if (e.key === "ArrowLeft") nextIdx = (currentIdx - 1 + explorerTabs.length) % explorerTabs.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = explorerTabs.length - 1;
+    if (nextIdx === null) return;
+    e.preventDefault();
+    const nextTab = explorerTabs[nextIdx];
+    setTab(nextTab);
+    tabRefs.current[nextTab]?.focus();
+  };
+
   return (
     <div className="studio-shell">
       <header className="studio-header">
+        <a href="#workspace-main" className="skip-link visually-hidden">
+          Skip to workspace
+        </a>
         <div className="brand-group">
           <img src="/icon.svg" alt="" className="brand-icon" width={28} height={28} />
           <div>
@@ -184,6 +209,7 @@ export function App() {
             type="file"
             accept=".sf2,.SF2"
             hidden
+            aria-label="Load SoundFont .sf2 file"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) void handleLoadFile(f);
@@ -232,22 +258,32 @@ export function App() {
       <main className="studio-main">
         {/* Left Explorer */}
         <aside className="panel explorer-panel" aria-label="Bank Explorer">
-          <div className="tab-bar" role="tablist">
-            {(["presets", "instruments", "samples", "info"] as ExplorerTab[]).map((t) => (
+          <div className="tab-bar" role="tablist" aria-label="Bank Explorer">
+            {explorerTabs.map((t, idx) => (
               <button
                 key={t}
+                ref={(el) => {
+                  tabRefs.current[t] = el;
+                }}
+                id={`${uid}-tab-${t}`}
                 type="button"
                 role="tab"
                 aria-selected={tab === t}
+                tabIndex={tab === t ? 0 : -1}
                 className={`tab-btn ${tab === t ? "is-active" : ""}`}
                 onClick={() => setTab(t)}
+                onKeyDown={(e) => handleTabKeyDown(e, idx)}
               >
                 {t.charAt(0).toUpperCase() + t.slice(1)}
               </button>
             ))}
           </div>
 
-          <div className="explorer-list">
+          <div
+            className="explorer-list"
+            role="tabpanel"
+            aria-labelledby={`${uid}-tab-${tab}`}
+          >
             {tab === "presets" &&
               bank.presets.map((p, idx) => (
                 <button
@@ -299,9 +335,10 @@ export function App() {
 
             {tab === "info" && (
               <div className="info-pane">
-                <label className="field">
-                  <span>Bank Name (INAM)</span>
+                <div className="field">
+                  <label htmlFor={`${uid}-info-inam`}>Bank Name (INAM)</label>
                   <input
+                    id={`${uid}-info-inam`}
                     type="text"
                     value={bank.info.inam}
                     onChange={(e) =>
@@ -310,10 +347,11 @@ export function App() {
                       })
                     }
                   />
-                </label>
-                <label className="field">
-                  <span>Author / Engineer (IENG)</span>
+                </div>
+                <div className="field">
+                  <label htmlFor={`${uid}-info-ieng`}>Author / Engineer (IENG)</label>
                   <input
+                    id={`${uid}-info-ieng`}
                     type="text"
                     value={bank.info.ieng ?? ""}
                     onChange={(e) =>
@@ -322,10 +360,11 @@ export function App() {
                       })
                     }
                   />
-                </label>
-                <label className="field">
-                  <span>Copyright (ICOP)</span>
+                </div>
+                <div className="field">
+                  <label htmlFor={`${uid}-info-icop`}>Copyright (ICOP)</label>
                   <input
+                    id={`${uid}-info-icop`}
                     type="text"
                     value={bank.info.icop ?? ""}
                     onChange={(e) =>
@@ -334,10 +373,11 @@ export function App() {
                       })
                     }
                   />
-                </label>
-                <label className="field">
-                  <span>Comments (ICMT)</span>
+                </div>
+                <div className="field">
+                  <label htmlFor={`${uid}-info-icmt`}>Comments (ICMT)</label>
                   <textarea
+                    id={`${uid}-info-icmt`}
                     rows={3}
                     value={bank.info.icmt ?? ""}
                     onChange={(e) =>
@@ -346,7 +386,7 @@ export function App() {
                       })
                     }
                   />
-                </label>
+                </div>
 
                 <h3 className="subhead">Symbolic Bank Diagnostics</h3>
                 <ul className="diag-list">
@@ -362,7 +402,12 @@ export function App() {
         </aside>
 
         {/* Center: Waveform + Zone Inspector */}
-        <section className="panel workspace-panel" aria-label="Waveform and Zone Editor">
+        <section
+          id="workspace-main"
+          tabIndex={-1}
+          className="panel workspace-panel"
+          aria-label="Waveform and Zone Editor"
+        >
           <div className="section-header">
             <h2>
               {currentSample ? `Sample: ${currentSample.name}` : "Waveform Visualizer"}
@@ -387,9 +432,10 @@ export function App() {
           {/* Preset / Instrument Header Editor */}
           <div className="meta-row">
             {currentPreset && (
-              <label className="field-inline">
-                <span>Preset Name</span>
+              <div className="field-inline">
+                <label htmlFor={`${uid}-preset-name`}>Preset Name</label>
                 <input
+                  id={`${uid}-preset-name`}
                   type="text"
                   maxLength={20}
                   value={currentPreset.name}
@@ -399,12 +445,13 @@ export function App() {
                     })
                   }
                 />
-              </label>
+              </div>
             )}
             {currentInst && (
-              <label className="field-inline">
-                <span>Instrument</span>
+              <div className="field-inline">
+                <label htmlFor={`${uid}-inst-name`}>Instrument</label>
                 <input
+                  id={`${uid}-inst-name`}
                   type="text"
                   maxLength={20}
                   value={currentInst.name}
@@ -414,7 +461,7 @@ export function App() {
                     })
                   }
                 />
-              </label>
+              </div>
             )}
           </div>
 
@@ -461,9 +508,12 @@ export function App() {
               <div className="editor-card">
                 <h3>Key &amp; Velocity Mapping</h3>
                 <div className="two-col">
-                  <label className="field">
-                    <span>Key Low ({midiNoteToName(activeKeyRange?.lo ?? 0)})</span>
+                  <div className="field">
+                    <label htmlFor={`${uid}-key-lo`}>
+                      Key Low ({midiNoteToName(activeKeyRange?.lo ?? 0)})
+                    </label>
                     <input
+                      id={`${uid}-key-lo`}
                       type="number"
                       min={0}
                       max={127}
@@ -479,10 +529,13 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="field">
-                    <span>Key High ({midiNoteToName(activeKeyRange?.hi ?? 127)})</span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`${uid}-key-hi`}>
+                      Key High ({midiNoteToName(activeKeyRange?.hi ?? 127)})
+                    </label>
                     <input
+                      id={`${uid}-key-hi`}
                       type="number"
                       min={0}
                       max={127}
@@ -498,10 +551,11 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="field">
-                    <span>Vel Low</span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`${uid}-vel-lo`}>Vel Low</label>
                     <input
+                      id={`${uid}-vel-lo`}
                       type="number"
                       min={0}
                       max={127}
@@ -517,10 +571,11 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="field">
-                    <span>Vel High</span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`${uid}-vel-hi`}>Vel High</label>
                     <input
+                      id={`${uid}-vel-hi`}
                       type="number"
                       min={0}
                       max={127}
@@ -536,16 +591,19 @@ export function App() {
                         })
                       }
                     />
-                  </label>
+                  </div>
                 </div>
               </div>
 
               <div className="editor-card">
                 <h3>Pitch &amp; Loop</h3>
                 <div className="two-col">
-                  <label className="field">
-                    <span>Root Key ({midiNoteToName(zoneRootKey)})</span>
+                  <div className="field">
+                    <label htmlFor={`${uid}-root-key`}>
+                      Root Key ({midiNoteToName(zoneRootKey)})
+                    </label>
                     <input
+                      id={`${uid}-root-key`}
                       type="number"
                       min={0}
                       max={127}
@@ -560,10 +618,11 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="field">
-                    <span>Loop Mode</span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`${uid}-loop-mode`}>Loop Mode</label>
                     <select
+                      id={`${uid}-loop-mode`}
                       value={zoneLoopMode}
                       onChange={(e) =>
                         mutateBank((d) => {
@@ -579,10 +638,11 @@ export function App() {
                       <option value={1}>1 — Continuous Loop</option>
                       <option value={3}>3 — Loop + Release</option>
                     </select>
-                  </label>
-                  <label className="field">
-                    <span>Coarse Tune (st)</span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`${uid}-coarse-tune`}>Coarse Tune (st)</label>
                     <input
+                      id={`${uid}-coarse-tune`}
                       type="number"
                       min={-48}
                       max={48}
@@ -597,10 +657,11 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="field">
-                    <span>Fine Tune (cents)</span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`${uid}-fine-tune`}>Fine Tune (cents)</label>
                     <input
+                      id={`${uid}-fine-tune`}
                       type="number"
                       min={-99}
                       max={99}
@@ -615,10 +676,11 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="field">
-                    <span>Loop Start (smp)</span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`${uid}-loop-start`}>Loop Start (smp)</label>
                     <input
+                      id={`${uid}-loop-start`}
                       type="number"
                       min={0}
                       max={currentSample.pcmData.length}
@@ -630,10 +692,11 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="field">
-                    <span>Loop End (smp)</span>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`${uid}-loop-end`}>Loop End (smp)</label>
                     <input
+                      id={`${uid}-loop-end`}
                       type="number"
                       min={0}
                       max={currentSample.pcmData.length}
@@ -648,16 +711,19 @@ export function App() {
                         })
                       }
                     />
-                  </label>
+                  </div>
                 </div>
               </div>
 
               <div className="editor-card adsr-card">
                 <h3>Volume ADSR Envelope</h3>
                 <div className="adsr-sliders">
-                  <label className="slider-field">
-                    <span>Attack: {zoneAdsr.attackSec.toFixed(3)}s</span>
+                  <div className="slider-field">
+                    <label htmlFor={`${uid}-adsr-attack`}>
+                      Attack: {zoneAdsr.attackSec.toFixed(3)}s
+                    </label>
                     <input
+                      id={`${uid}-adsr-attack`}
                       type="range"
                       min={0.001}
                       max={2}
@@ -672,10 +738,13 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="slider-field">
-                    <span>Decay: {zoneAdsr.decaySec.toFixed(3)}s</span>
+                  </div>
+                  <div className="slider-field">
+                    <label htmlFor={`${uid}-adsr-decay`}>
+                      Decay: {zoneAdsr.decaySec.toFixed(3)}s
+                    </label>
                     <input
+                      id={`${uid}-adsr-decay`}
                       type="range"
                       min={0.005}
                       max={3}
@@ -690,10 +759,13 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="slider-field">
-                    <span>Sustain: {Math.round(zoneAdsr.sustainLevel * 100)}%</span>
+                  </div>
+                  <div className="slider-field">
+                    <label htmlFor={`${uid}-adsr-sustain`}>
+                      Sustain: {Math.round(zoneAdsr.sustainLevel * 100)}%
+                    </label>
                     <input
+                      id={`${uid}-adsr-sustain`}
                       type="range"
                       min={0}
                       max={1}
@@ -708,10 +780,13 @@ export function App() {
                         })
                       }
                     />
-                  </label>
-                  <label className="slider-field">
-                    <span>Release: {zoneAdsr.releaseSec.toFixed(3)}s</span>
+                  </div>
+                  <div className="slider-field">
+                    <label htmlFor={`${uid}-adsr-release`}>
+                      Release: {zoneAdsr.releaseSec.toFixed(3)}s
+                    </label>
                     <input
+                      id={`${uid}-adsr-release`}
                       type="range"
                       min={0.005}
                       max={4}
@@ -726,7 +801,7 @@ export function App() {
                         })
                       }
                     />
-                  </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -748,7 +823,9 @@ export function App() {
       />
 
       <footer className="studio-footer">
-        <span className="status-text">{statusMsg}</span>
+        <span className="status-text" role="status" aria-live="polite" aria-atomic="true">
+          {statusMsg}
+        </span>
         <span className="revisited-badge">
           100% Client-Side &amp; Offline ·{" "}
           <a href="https://revisitedlabs.com/" target="_blank" rel="noopener noreferrer">
