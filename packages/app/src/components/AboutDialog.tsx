@@ -1,5 +1,28 @@
 import { useEffect, useRef } from "react";
 
+export const REVISITED_AUDIO_SUITE = [
+  {
+    name: "CircuitBender 1984",
+    url: "https://circuitbender.revisitedlabs.com",
+    role: "FM & circuit-bent synth",
+  },
+  {
+    name: "Mockingboard Revisited",
+    url: "https://mockingboard.revisitedlabs.com",
+    role: "AY-3-8910 chiptune tracker",
+  },
+  {
+    name: "Algorithmic MIDI Companion",
+    url: "https://midicompanion.revisitedlabs.com",
+    role: "Generative MIDI sequencer",
+  },
+  {
+    name: "Stem Studio",
+    url: "https://stemstudio.revisitedlabs.com",
+    role: "Multi-track stem mixer",
+  },
+] as const;
+
 interface AboutDialogProps {
   open: boolean;
   onClose: () => void;
@@ -91,6 +114,18 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
           <li>
             <code>Esc</code>: Close dialogs.
           </li>
+        </ul>
+
+        <h2>Revisited Audio Suite</h2>
+        <ul className="suite-list">
+          {REVISITED_AUDIO_SUITE.map((app) => (
+            <li key={app.url}>
+              <a href={app.url} target="_blank" rel="noopener noreferrer">
+                {app.name}
+              </a>{" "}
+              — {app.role}
+            </li>
+          ))}
         </ul>
 
         <p className="license-note">

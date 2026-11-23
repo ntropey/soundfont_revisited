@@ -6,6 +6,13 @@ interface PianoKeyboardProps {
   onNoteOff: (midi: number) => void;
   onPanic: () => void;
   activeRange?: { lo: number; hi: number };
+  externalPressedNotes?: ReadonlySet<number>;
+  isPlayingSequence?: boolean;
+  loadedMidiName?: string | null;
+  onPlayDemoRiff?: () => void;
+  onLoadMidiFile?: (file: File) => void;
+  onPlayLoadedMidi?: () => void;
+  onStopSequence?: () => void;
 }
 
 const KEYBOARD_MAP: Record<string, number> = {
@@ -46,10 +53,18 @@ export function PianoKeyboard({
   onNoteOff,
   onPanic,
   activeRange,
+  externalPressedNotes,
+  isPlayingSequence = false,
+  loadedMidiName,
+  onPlayDemoRiff,
+  onLoadMidiFile,
+  onPlayLoadedMidi,
+  onStopSequence,
 }: PianoKeyboardProps) {
   const [baseOctave, setBaseOctave] = useState(4); // C4 = 60
   const [pressedNotes, setPressedNotes] = useState<Set<number>>(new Set());
   const pointerDownRef = useRef<number | null>(null);
+  const midiInputRef = useRef<HTMLInputElement | null>(null);
   const startMidi = (baseOctave + 1) * 12; // baseOctave 4 -> 60 (C4), 3 -> 48 (C3)
   const keys = Array.from({ length: 25 }, (_, i) => startMidi + i).filter((m) => m <= 127);
 
@@ -134,6 +149,59 @@ export function PianoKeyboard({
             Oct +
           </button>
         </div>
+        <div className="piano-controls midi-auditioner">
+          <input
+            ref={midiInputRef}
+            type="file"
+            accept=".mid,.midi,.MID,.MIDI"
+            hidden
+            aria-label="Load Standard MIDI file (.mid)"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f && onLoadMidiFile) onLoadMidiFile(f);
+              e.target.value = "";
+            }}
+          />
+          {onPlayDemoRiff && (
+            <button
+              type="button"
+              className="btn btn-sm btn-accent"
+              onClick={onPlayDemoRiff}
+            >
+              Play Demo Riff
+            </button>
+          )}
+          {onLoadMidiFile && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => midiInputRef.current?.click()}
+            >
+              Load .mid
+            </button>
+          )}
+          {loadedMidiName && onPlayLoadedMidi && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={onPlayLoadedMidi}
+              title={`Replay ${loadedMidiName}`}
+            >
+              Play {loadedMidiName}
+            </button>
+          )}
+          {onStopSequence && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={!isPlayingSequence}
+              onClick={onStopSequence}
+            >
+              Stop
+            </button>
+          )}
+        </div>
+
         <div className="piano-controls">
           <span className="piano-hint">Keys: Z–M / Q–I</span>
           <button
@@ -160,7 +228,7 @@ export function PianoKeyboard({
       >
         {whiteKeys.map((midi) => {
           const inRange = !activeRange || (midi >= activeRange.lo && midi <= activeRange.hi);
-          const isPressed = pressedNotes.has(midi);
+          const isPressed = pressedNotes.has(midi) || Boolean(externalPressedNotes?.has(midi));
           return (
             <button
               key={midi}
@@ -193,7 +261,7 @@ export function PianoKeyboard({
           const leftPct = ((prevWhiteIndex + 0.68) / whiteCount) * 100;
           const widthPct = (0.64 / whiteCount) * 100;
           const inRange = !activeRange || (midi >= activeRange.lo && midi <= activeRange.hi);
-          const isPressed = pressedNotes.has(midi);
+          const isPressed = pressedNotes.has(midi) || Boolean(externalPressedNotes?.has(midi));
 
           return (
             <button

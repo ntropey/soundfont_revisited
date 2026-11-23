@@ -1,14 +1,21 @@
 import { useId, useMemo, useRef, useState } from "react";
 import {
+  addWavSampleToBank,
   cloneZone,
   createDemoBank,
+  createDemoMidiSequence,
+  estimateMidiRootKey,
   exportPresetToSfz,
+  findZeroCrossing,
   getZoneAdsr,
   getZoneGenerator,
   getZoneRange,
   getZoneScalar,
   midiNoteToName,
+  parseMidi,
+  type ParsedMidi,
   parseSf2,
+  parseWav,
   setZoneAdsr,
   setZoneRange,
   setZoneScalar,
@@ -18,7 +25,7 @@ import {
   writeSf2,
 } from "@soundfont/core";
 import { AuditionEngine } from "./audio/auditionEngine";
-import { AboutDialog } from "./components/AboutDialog";
+import { AboutDialog, REVISITED_AUDIO_SUITE } from "./components/AboutDialog";
 import { PianoKeyboard } from "./components/PianoKeyboard";
 import { WaveformCanvas } from "./components/WaveformCanvas";
 
@@ -41,6 +48,21 @@ function safeSlug(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "soundfont";
 }
 
+function cloneBank(prev: Sf2Bank): Sf2Bank {
+  return {
+    info: { ...prev.info },
+    samples: prev.samples.map((s) => ({ ...s })),
+    instruments: prev.instruments.map((inst) => ({
+      ...inst,
+      zones: inst.zones.map((z) => cloneZone(z)),
+    })),
+    presets: prev.presets.map((p) => ({
+      ...p,
+      zones: p.zones.map((z) => cloneZone(z)),
+    })),
+  };
+}
+
 export function App() {
   const [bank, setBank] = useState<Sf2Bank>(() => createDemoBank());
   const [tab, setTab] = useState<ExplorerTab>("presets");
@@ -50,9 +72,14 @@ export function App() {
   const [selectedSampleIdx, setSelectedSampleIdx] = useState(0);
   const [statusMsg, setStatusMsg] = useState("Loaded Retro GM Starter Bank (offline).");
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isPlayingSequence, setIsPlayingSequence] = useState(false);
+  const [sequenceNotes, setSequenceNotes] = useState<Set<number>>(new Set());
+  const [loadedMidi, setLoadedMidi] = useState<{ name: string; parsed: ParsedMidi } | null>(null);
 
   const uid = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const wavInputRef = useRef<HTMLInputElement | null>(null);
   const tabRefs = useRef<Record<ExplorerTab, HTMLButtonElement | null>>({
     presets: null,
     instruments: null,
@@ -97,28 +124,61 @@ export function App() {
 
   const mutateBank = (updater: (draft: Sf2Bank) => void) => {
     setBank((prev) => {
-      const next: Sf2Bank = {
-        info: { ...prev.info },
-        samples: prev.samples.map((s) => ({ ...s })),
-        instruments: prev.instruments.map((inst) => ({
-          ...inst,
-          zones: inst.zones.map((z) => cloneZone(z)),
-        })),
-        presets: prev.presets.map((p) => ({
-          ...p,
-          zones: p.zones.map((z) => cloneZone(z)),
-        })),
-      };
+      const next = cloneBank(prev);
       updater(next);
       return next;
     });
+  };
+
+  const handleStopSequence = () => {
+    engineRef.current?.stopSequence();
+    setIsPlayingSequence(false);
+    setSequenceNotes(new Set());
+  };
+
+  const playMidiSequence = (parsed: ParsedMidi, label: string) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    setIsPlayingSequence(true);
+    setSequenceNotes(new Set());
+    setStatusMsg(`Playing ${label} (${parsed.events.length} notes, ${parsed.durationSec.toFixed(1)}s).`);
+
+    engine.playSequence(
+      parsed.events,
+      (midi, velocity) => {
+        if (tab === "samples" && currentSample) {
+          engine.playSampleNote(currentSample, midi, velocity);
+        } else {
+          engine.playPresetNote(bank, selectedPresetIdx, midi, velocity);
+        }
+        setSequenceNotes((prev) => {
+          const next = new Set(prev);
+          next.add(midi);
+          return next;
+        });
+      },
+      (midi) => {
+        engine.noteOff(midi);
+        setSequenceNotes((prev) => {
+          if (!prev.has(midi)) return prev;
+          const next = new Set(prev);
+          next.delete(midi);
+          return next;
+        });
+      },
+      () => {
+        setIsPlayingSequence(false);
+        setSequenceNotes(new Set());
+        setStatusMsg(`Finished ${label}.`);
+      }
+    );
   };
 
   const handleLoadFile = async (file: File) => {
     try {
       const buf = await file.arrayBuffer();
       const parsed = parseSf2(buf);
-      engineRef.current?.allNotesOff();
+      handleStopSequence();
       setBank(parsed);
       setSelectedPresetIdx(0);
       setSelectedInstIdx(0);
@@ -129,6 +189,70 @@ export function App() {
       );
     } catch (err) {
       setStatusMsg(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleImportWav = async (file: File) => {
+    try {
+      const buf = await file.arrayBuffer();
+      const parsed = parseWav(buf);
+      const pitch =
+        parsed.midiUnityNote !== undefined
+          ? parsed.midiUnityNote
+          : estimateMidiRootKey(parsed.samples, parsed.sampleRate).midiKey;
+
+      const nextBank = cloneBank(bank);
+      const res = addWavSampleToBank(nextBank, {
+        name: file.name,
+        samples: parsed.samples,
+        sampleRate: parsed.sampleRate,
+        createPreset: true,
+        loopStart: parsed.loopStart,
+        loopEnd: parsed.loopEnd,
+        originalPitch: pitch,
+      });
+
+      handleStopSequence();
+      setBank(nextBank);
+      setTab("presets");
+      if (res.presetIndex !== undefined) setSelectedPresetIdx(res.presetIndex);
+      if (res.instrumentIndex !== undefined) setSelectedInstIdx(res.instrumentIndex);
+      setSelectedZoneIdx(0);
+      setSelectedSampleIdx(res.sampleIndex);
+
+      const newPreset = res.presetIndex !== undefined ? nextBank.presets[res.presetIndex] : null;
+      const presetTag = newPreset
+        ? ` as Preset ${String(newPreset.bank).padStart(3, "0")}:${String(newPreset.preset).padStart(3, "0")}`
+        : "";
+      setStatusMsg(
+        `Imported "${file.name}" (${parsed.sampleRate} Hz, root ${midiNoteToName(res.originalPitch)})${presetTag}.`
+      );
+    } catch (err) {
+      setStatusMsg(`WAV import failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleLoadMidi = async (file: File) => {
+    try {
+      const buf = await file.arrayBuffer();
+      const parsed = parseMidi(buf);
+      setLoadedMidi({ name: file.name, parsed });
+      playMidiSequence(parsed, file.name);
+    } catch (err) {
+      setStatusMsg(`MIDI load failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleDroppedFile = (file: File) => {
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith(".wav")) {
+      void handleImportWav(file);
+    } else if (lower.endsWith(".mid") || lower.endsWith(".midi")) {
+      void handleLoadMidi(file);
+    } else if (lower.endsWith(".sf2")) {
+      void handleLoadFile(file);
+    } else {
+      setStatusMsg(`Unsupported file "${file.name}". Drop .sf2, .wav, or .mid files.`);
     }
   };
 
@@ -188,7 +312,24 @@ export function App() {
   };
 
   return (
-    <div className="studio-shell">
+    <div
+      className={`studio-shell ${isDragOver ? "is-drag-over" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!isDragOver) setIsDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setIsDragOver(false);
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f) handleDroppedFile(f);
+      }}
+    >
       <header className="studio-header">
         <a href="#workspace-main" className="skip-link visually-hidden">
           Skip to workspace
@@ -222,6 +363,25 @@ export function App() {
             onClick={() => fileInputRef.current?.click()}
           >
             Load .sf2
+          </button>
+          <input
+            ref={wavInputRef}
+            type="file"
+            accept=".wav,.WAV,audio/wav"
+            hidden
+            aria-label="Import WAV sample file"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleImportWav(f);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            className="btn"
+            onClick={() => wavInputRef.current?.click()}
+          >
+            Import WAV
           </button>
           <button
             type="button"
@@ -713,6 +873,32 @@ export function App() {
                     />
                   </div>
                 </div>
+                <div className="loop-snap-row">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      const snappedStart = findZeroCrossing(
+                        currentSample.pcmData,
+                        currentSample.loopStart
+                      );
+                      const snappedEnd = Math.max(
+                        snappedStart,
+                        findZeroCrossing(currentSample.pcmData, currentSample.loopEnd)
+                      );
+                      mutateBank((d) => {
+                        const s = d.samples[resolvedSampleIdx];
+                        s.loopStart = snappedStart;
+                        s.loopEnd = snappedEnd;
+                      });
+                      setStatusMsg(
+                        `Snapped loop points to zero crossings (${snappedStart}..${snappedEnd}).`
+                      );
+                    }}
+                  >
+                    Zero-Cross Snap
+                  </button>
+                </div>
               </div>
 
               <div className="editor-card adsr-card">
@@ -811,6 +997,17 @@ export function App() {
 
       <PianoKeyboard
         activeRange={activeKeyRange}
+        externalPressedNotes={sequenceNotes}
+        isPlayingSequence={isPlayingSequence}
+        loadedMidiName={loadedMidi?.name ?? null}
+        onPlayDemoRiff={() => playMidiSequence(createDemoMidiSequence(), "Demo Riff")}
+        onLoadMidiFile={(file) => {
+          void handleLoadMidi(file);
+        }}
+        onPlayLoadedMidi={
+          loadedMidi ? () => playMidiSequence(loadedMidi.parsed, loadedMidi.name) : undefined
+        }
+        onStopSequence={handleStopSequence}
         onNoteOn={(midi) => {
           if (tab === "samples" && currentSample) {
             engineRef.current?.playSampleNote(currentSample, midi, 105);
@@ -819,13 +1016,21 @@ export function App() {
           }
         }}
         onNoteOff={(midi) => engineRef.current?.noteOff(midi)}
-        onPanic={() => engineRef.current?.allNotesOff()}
+        onPanic={handleStopSequence}
       />
 
       <footer className="studio-footer">
         <span className="status-text" role="status" aria-live="polite" aria-atomic="true">
           {statusMsg}
         </span>
+        <nav className="suite-links" aria-label="Revisited Audio Suite">
+          <span className="suite-label">Revisited Audio Suite:</span>
+          {REVISITED_AUDIO_SUITE.map((app) => (
+            <a key={app.url} href={app.url} target="_blank" rel="noopener noreferrer">
+              {app.name}
+            </a>
+          ))}
+        </nav>
         <span className="revisited-badge">
           100% Client-Side &amp; Offline ·{" "}
           <a href="https://revisitedlabs.com/" target="_blank" rel="noopener noreferrer">

@@ -3,6 +3,7 @@ import {
   getZoneGenerator,
   getZoneRange,
   getZoneScalar,
+  type MidiNoteEvent,
   type Sf2Bank,
   SF2_GENERATOR,
   type Sf2Sample,
@@ -19,6 +20,7 @@ export class AuditionEngine {
   private masterGain: GainNode | null = null;
   private activeVoices = new Map<number, ActiveVoice>();
   private bufferCache = new WeakMap<Int16Array, AudioBuffer>();
+  private sequenceTimers: number[] = [];
 
   private ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -236,7 +238,54 @@ export class AuditionEngine {
     }
   }
 
+  public playSequence(
+    events: MidiNoteEvent[],
+    onNoteOn: (midi: number, velocity: number) => void,
+    onNoteOff: (midi: number) => void,
+    onComplete?: () => void
+  ): void {
+    this.stopSequence();
+    this.ensureContext();
+    if (events.length === 0) {
+      onComplete?.();
+      return;
+    }
+
+    let maxEndMs = 0;
+    for (const ev of events) {
+      const startMs = Math.max(0, Math.round(ev.timeSec * 1000));
+      const endMs = Math.max(startMs + 30, Math.round((ev.timeSec + ev.durationSec) * 1000));
+      if (endMs > maxEndMs) maxEndMs = endMs;
+
+      const onTimer = window.setTimeout(() => {
+        onNoteOn(ev.midi, ev.velocity);
+      }, startMs);
+      const offTimer = window.setTimeout(() => {
+        onNoteOff(ev.midi);
+      }, endMs);
+      this.sequenceTimers.push(onTimer, offTimer);
+    }
+
+    const doneTimer = window.setTimeout(() => {
+      this.sequenceTimers = [];
+      onComplete?.();
+    }, maxEndMs + 40);
+    this.sequenceTimers.push(doneTimer);
+  }
+
+  public stopSequence(): void {
+    for (const id of this.sequenceTimers) {
+      window.clearTimeout(id);
+    }
+    this.sequenceTimers = [];
+    this.allNotesOff();
+  }
+
   public allNotesOff(): void {
+    for (const id of this.sequenceTimers) {
+      window.clearTimeout(id);
+    }
+    this.sequenceTimers = [];
     for (const midi of Array.from(this.activeVoices.keys())) {
       this.stopVoiceImmediate(midi);
     }
