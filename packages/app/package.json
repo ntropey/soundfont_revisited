@@ -1,0 +1,27 @@
+{
+  "name": "@soundfont/app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SoundFont Revisited Studio PWA (React 19 + Vite) — 100% client-side offline .sf2 / .sfz editor",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@soundfont/core": "workspace:*",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  }
+}

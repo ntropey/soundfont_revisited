@@ -1,0 +1,19 @@
+{
+  "name": "soundfont-revisited",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SoundFont Revisited — 100% client-side offline .sf2 / .sfz SoundFont Bank & Instrument Editor",
+  "license": "GPL-3.0-or-later",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @soundfont/app dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.3"
+  }
+}

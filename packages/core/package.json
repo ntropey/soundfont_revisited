@@ -1,0 +1,18 @@
+{
+  "name": "@soundfont/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SoundFont Revisited core engine: binary RIFF .sf2 parser/writer, .sfz + WAV exporter, demo bank synthesizer, and deterministic validator (pure TypeScript, zero DOM/Node dependencies)",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  }
+}
